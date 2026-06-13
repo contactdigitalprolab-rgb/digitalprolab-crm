@@ -1048,4 +1048,411 @@ function afficherRelancesModal(c) {
   for (var i = 0; i < rels.length; i++) {
     var r = rels[i];
     html += "<div class='rel-item rel-venir' style='padding:8px 10px;margin-bottom:6px'>";
-    html += "<div class='
+    html += "<div class='rel-ic' style='width:24px;height:24px;font-size:12px'>&#x1F4C5;</div>";
+    html += "<div style='flex:1'><div style='font-size:11px;font-weight:600'>" + (r.canal || "") + "</div>";
+    html += "<div style='font-size:11px;color:var(--gris)'>" + (r.message || "") + "</div></div>";
+    html += "<div style='font-size:10px;color:var(--gris)'>" + formaterDate(r.date) + "</div></div>";
+  }
+  el("m-relances-liste").innerHTML = html || "<div style='color:var(--gris);font-size:11px;padding:5px 0'>Aucune relance</div>";
+}
+
+function mettreAJourChamp(champ, valeur) {
+  var c = null;
+  for (var i = 0; i < contacts.length; i++) {
+    if (contacts[i].id === curId) { c = contacts[i]; break; }
+  }
+  if (!c) return;
+  c[champ] = valeur;
+  if (champ === "statut") {
+    el("m-badges").innerHTML = "<span class='st " + classeStatut(valeur) + "'>" + valeur + "</span>";
+    if (!c.historique) c.historique = [];
+    c.historique.push({date: maintenant(), type: "note", titre: "Statut modifie", corps: "Nouveau statut : " + valeur});
+    afficherHistorique(c);
+  }
+  if (URL_SCRIPT && !modeDemo) {
+    envoyerGS({action: "modifierContact", contact: c});
+  }
+  sauvegarderLocal();
+  toutAfficher();
+}
+
+function supprimerContact(id) {
+  if (!confirm("Supprimer ce contact ?")) return;
+  contacts = contacts.filter(function(c) { return c.id !== id; });
+  if (URL_SCRIPT && !modeDemo) envoyerGS({action: "supprimerContact", id: id});
+  sauvegarderLocal();
+  toutAfficher();
+  afficherToast("Contact supprime", "");
+}
+
+function changerVue(id) {
+  var navs = document.querySelectorAll(".nav");
+  var vues = document.querySelectorAll(".vue");
+  for (var i = 0; i < navs.length; i++) navs[i].classList.remove("actif");
+  for (var i = 0; i < vues.length; i++) vues[i].classList.remove("actif");
+  var nav = el("nav-" + id);
+  var vue = el("vue-" + id);
+  if (nav) nav.classList.add("actif");
+  if (vue) vue.classList.add("actif");
+  var titres = {bord:"Vue generale", pipe:"Pipeline commercial", contacts:"Contacts", relances:"Relances", props:"Propositions", terrain:"Saisie terrain", analyse:"Analyse digitale"};
+  el("topbar-titre").textContent = titres[id] || id;
+  if (id === "pipe") afficherPipeline();
+  if (id === "contacts") afficherGrille();
+  if (id === "relances") afficherRelances();
+  if (id === "props") afficherPropositions();
+}
+
+function changerOnglet(id) {
+  var ongs = document.querySelectorAll(".ong");
+  var conts = document.querySelectorAll(".ong-contenu");
+  for (var i = 0; i < ongs.length; i++) ongs[i].classList.remove("actif");
+  for (var i = 0; i < conts.length; i++) conts[i].classList.remove("actif");
+  var btn = document.querySelector("[data-ong='" + id + "']");
+  if (btn) btn.classList.add("actif");
+  var cont = el("ong-" + id);
+  if (cont) cont.classList.add("actif");
+}
+
+function lireGS(action, params) {
+  var url = URL_SCRIPT + "?action=" + action;
+  if (params) url += "&" + params;
+  return fetch(url).then(function(r) { return r.json(); });
+}
+
+function envoyerGS(corps) {
+  if (modeDemo || !URL_SCRIPT) return Promise.resolve({ok: true});
+  return fetch(URL_SCRIPT, {method: "POST", body: JSON.stringify(corps)}).then(function(r) { return r.json(); });
+}
+
+function synchroniser() {
+  if (modeDemo) { toutAfficher(); return; }
+  if (!URL_SCRIPT) { el("setup").style.display = "flex"; return; }
+  afficherLoader("Connexion a Google Sheets...");
+  Promise.all([
+    lireGS("lireContacts"), lireGS("lireHistorique"),
+    lireGS("lirePropositions"), lireGS("lireRelances")
+  ]).then(function(res) {
+    var ct = Array.isArray(res[0]) ? res[0] : [];
+    var hi = Array.isArray(res[1]) ? res[1] : [];
+    var pr = Array.isArray(res[2]) ? res[2] : [];
+    var rl = Array.isArray(res[3]) ? res[3] : [];
+    contacts = ct.map(function(c) {
+      return {
+        id: c.ID || c.id || ("C" + Date.now()),
+        prenom: c.Prenom || "", nom: c.Nom || "",
+        entreprise: c.Entreprise || "", secteur: c.Secteur || "",
+        ville: c.Ville || "", codePostal: c["Code postal"] || "",
+        telephone: c.Telephone || "", email: c.Email || "",
+        siteWeb: c["Site web"] || "", linkedin: c.LinkedIn || "",
+        facebook: c.Facebook || "", instagram: c.Instagram || "",
+        googleBusiness: c["Google Business"] || "",
+        statut: c.Statut || "Nouveau lead", potentiel: c.Potentiel || "Moyen",
+        confiance: c.Confiance || "Froid", source: c.Source || "",
+        canal: c.Canal || "", prestation: c.Prestation || "",
+        montantEstime: c["Montant estime"] || "", montantSigne: c["Montant signe"] || "",
+        numeroDevis: c["Numero devis"] || "", dateSignature: c["Date signature"] || "",
+        presenceDigitale: c["Presence digitale"] || "", pointsFaibles: c["Points faibles"] || "",
+        angleApproche: c["Angle approche"] || "", opportunite: c.Opportunite || "",
+        notesRecherche: c["Notes recherche"] || "", notesTerrain: c["Notes terrain"] || "",
+        notesGenerales: c["Notes generales"] || "", lienDevis: c["Lien devis"] || "",
+        lienContrat: c["Lien contrat"] || "", lienBrief: c["Lien brief"] || "",
+        prochaineRelance: c["Prochaine relance"] || "", actionPrevue: c["Action prevue"] || "",
+        maturiteDigitale: c["Maturite digitale"] || "0",
+        historique: hi.filter(function(h) { return h["Contact ID"] === (c.ID || c.id); }).map(function(h) {
+          return {date: h.Date, type: h.Type, titre: h.Titre, corps: h.Contenu};
+        }),
+        propositions: pr.filter(function(p) { return p["Contact ID"] === (c.ID || c.id); }).map(function(p) {
+          return {titre: p.Titre, montant: p.Montant, statut: p["Statut proposition"], detail: p["Detail services"], lien: p["Lien document"]};
+        }),
+        relances: rl.filter(function(r) { return r["Contact ID"] === (c.ID || c.id); }).map(function(r) {
+          return {date: r["Date prevue"], canal: r.Canal, message: r.Message};
+        })
+      };
+    });
+    sauvegarderLocal(); toutAfficher(); cacherLoader();
+    afficherToast("Synchronise avec Google Sheets", "ok");
+  }).catch(function() {
+    cacherLoader();
+    var local = localStorage.getItem(CLE_DATA);
+    if (local) { contacts = JSON.parse(local); toutAfficher(); afficherToast("Mode hors ligne", ""); }
+    else afficherToast("Erreur de connexion", "err");
+  });
+}
+
+function chargerDonneesDemonstration() {
+  contacts = [
+    {id:"C001", prenom:"Carine", nom:"LANDAIS", entreprise:"Phytosens", secteur:"Beaute", ville:"Hyeres", codePostal:"83400", telephone:"", email:"", siteWeb:"", linkedin:"", facebook:"", instagram:"", googleBusiness:"", statut:"Gagne", potentiel:"Fort", confiance:"Chaud", source:"Terrain", canal:"Visite terrain", prestation:"Creation de site", montantEstime:"1200", montantSigne:"1200", numeroDevis:"DPL-001", dateSignature:"2026-06-05", presenceDigitale:"Instagram uniquement, inactif.", pointsFaibles:"Aucun site. Google Business inexistant.", angleApproche:"Montrer la perte de clients.", opportunite:"Site vitrine + GBP + avis", notesRecherche:"Tres bon accueil.", notesTerrain:"Boutique propre.", notesGenerales:"", lienDevis:"", lienContrat:"", lienBrief:"", prochaineRelance:"", actionPrevue:"", maturiteDigitale:"1",
+    historique:[{date:"2026-06-01",type:"visite",titre:"Visite terrain",corps:"Rencontre en boutique."},{date:"2026-06-05",type:"gagne",titre:"Contrat signe",corps:"Site vitrine valide - 1 200 euro"}],
+    propositions:[{titre:"Site vitrine Phytosens",montant:"1 200 euro",statut:"Acceptee",detail:"Site 5 pages, SEO local.",lien:""}],
+    relances:[]},
+    {id:"C002", prenom:"Corine", nom:"DI TULLIO", entreprise:"A Fleur de Co", secteur:"Commerce", ville:"Carqueiranne", codePostal:"83320", telephone:"", email:"", siteWeb:"", linkedin:"", facebook:"https://facebook.com/afleurde", instagram:"", googleBusiness:"", statut:"Nouveau lead", potentiel:"Tres fort", confiance:"Froid", source:"Terrain", canal:"Visite terrain", prestation:"Creation de site", montantEstime:"", montantSigne:"", numeroDevis:"", dateSignature:"", presenceDigitale:"Page Facebook uniquement.", pointsFaibles:"Aucun site. Pas de Google Business.", angleApproche:"Montrer que les concurrents apparaissent avant elle.", opportunite:"Site vitrine + GBP + reseaux", notesRecherche:"Fleuriste artisanale.", notesTerrain:"A contacter par SMS.", notesGenerales:"", lienDevis:"", lienContrat:"", lienBrief:"", prochaineRelance:"2026-06-08", actionPrevue:"Envoi SMS", maturiteDigitale:"1",
+    historique:[{date:"2026-06-05",type:"visite",titre:"Prospect identifie",corps:"Carqueiranne. Aucune presence digitale."}],
+    propositions:[], relances:[{date:"2026-06-08",canal:"SMS",message:"Premier contact - audit gratuit."}]}
+  ];
+}
+
+function exporterCSV() {
+  var champs = ["id","prenom","nom","entreprise","secteur","ville","telephone","email","statut","potentiel","prestation","montantEstime","montantSigne","prochaineRelance","actionPrevue"];
+  var lignes = contacts.map(function(c) {
+    return champs.map(function(k) { return '"' + (String(c[k] || "")).replace(/"/g, '""') + '"'; }).join(",");
+  });
+  var csv = [champs.join(",")].concat(lignes).join("\n");
+  var a = document.createElement("a");
+  a.href = "data:text/csv;charset=utf-8," + encodeURIComponent(csv);
+  a.download = "DPL_CRM_" + maintenant() + ".csv";
+  a.click();
+  afficherToast("Export CSV telecharge", "ok");
+}
+
+document.addEventListener("DOMContentLoaded", function() {
+
+  el("btn-connexion").addEventListener("click", function() {
+    var url = (el("setup-url").value || "").trim();
+    if (!url || url.indexOf("https://script.google.com") !== 0) {
+      alert("URL invalide. Elle doit commencer par https://script.google.com");
+      return;
+    }
+    URL_SCRIPT = url;
+    try { localStorage.setItem(CLE_URL, url); } catch(e) {}
+    el("setup").style.display = "none";
+    synchroniser();
+  });
+
+  el("btn-demo").addEventListener("click", function() {
+    modeDemo = true;
+    el("setup").style.display = "none";
+    chargerDonneesDemonstration();
+    toutAfficher();
+    afficherToast("Mode demonstration actif", "ok");
+  });
+
+  var navsBtn = document.querySelectorAll(".nav");
+  for (var i = 0; i < navsBtn.length; i++) {
+    navsBtn[i].addEventListener("click", function() {
+      changerVue(this.id.replace("nav-", ""));
+    });
+  }
+
+  el("btn-sync").addEventListener("click", synchroniser);
+  el("btn-export").addEventListener("click", exporterCSV);
+  el("btn-nouveau").addEventListener("click", function() { el("modal-nouveau").classList.add("ouvert"); });
+
+  el("recherche-inp").addEventListener("input", function() {
+    var q = this.value.toLowerCase();
+    var filtre = q ? contacts.filter(function(c) {
+      return (c.nom + c.prenom + c.entreprise + c.ville).toLowerCase().indexOf(q) >= 0;
+    }) : null;
+    afficherTableau(filtre);
+  });
+
+  var filtresBtns = document.querySelectorAll("#filtres-tbl .fbtn");
+  for (var i = 0; i < filtresBtns.length; i++) {
+    filtresBtns[i].addEventListener("click", function() {
+      filtreActif = this.getAttribute("data-f");
+      var tous = document.querySelectorAll("#filtres-tbl .fbtn");
+      for (var j = 0; j < tous.length; j++) tous[j].classList.remove("actif");
+      this.classList.add("actif");
+      afficherTableau();
+    });
+  }
+
+  var ongsBtns = document.querySelectorAll(".ong");
+  for (var i = 0; i < ongsBtns.length; i++) {
+    ongsBtns[i].addEventListener("click", function() { changerOnglet(this.getAttribute("data-ong")); });
+  }
+
+  el("btn-fermer-contact").addEventListener("click", function() { el("modal-contact").classList.remove("ouvert"); });
+  el("btn-fermer-nouveau").addEventListener("click", function() { el("modal-nouveau").classList.remove("ouvert"); });
+  el("btn-annuler-nouveau").addEventListener("click", function() { el("modal-nouveau").classList.remove("ouvert"); });
+  el("modal-contact").addEventListener("click", function(e) { if (e.target === el("modal-contact")) el("modal-contact").classList.remove("ouvert"); });
+  el("modal-nouveau").addEventListener("click", function(e) { if (e.target === el("modal-nouveau")) el("modal-nouveau").classList.remove("ouvert"); });
+
+  el("m-statut").addEventListener("change", function() { mettreAJourChamp("statut", this.value); });
+  el("m-potentiel").addEventListener("change", function() { mettreAJourChamp("potentiel", this.value); });
+  el("m-confiance").addEventListener("change", function() { mettreAJourChamp("confiance", this.value); });
+  el("m-maturite").addEventListener("change", function() { mettreAJourChamp("maturiteDigitale", this.value); });
+  el("m-rel-date").addEventListener("change", function() { mettreAJourChamp("prochaineRelance", this.value); });
+  el("m-rel-action").addEventListener("blur", function() { mettreAJourChamp("actionPrevue", this.value); });
+  el("m-estime").addEventListener("blur", function() { mettreAJourChamp("montantEstime", this.innerText); });
+  el("m-signe").addEventListener("blur", function() { mettreAJourChamp("montantSigne", this.innerText); });
+  el("m-ndevis").addEventListener("blur", function() { mettreAJourChamp("numeroDevis", this.innerText); });
+  el("m-dsign").addEventListener("blur", function() { mettreAJourChamp("dateSignature", this.innerText); });
+  el("m-ldevis").addEventListener("blur", function() { mettreAJourChamp("lienDevis", this.innerText); });
+  el("m-lcontrat").addEventListener("blur", function() { mettreAJourChamp("lienContrat", this.innerText); });
+  el("m-lbrief").addEventListener("blur", function() { mettreAJourChamp("lienBrief", this.innerText); });
+  el("a-pres").addEventListener("blur", function() { mettreAJourChamp("presenceDigitale", this.innerText); });
+  el("a-pts").addEventListener("blur", function() { mettreAJourChamp("pointsFaibles", this.innerText); });
+  el("a-angle").addEventListener("blur", function() { mettreAJourChamp("angleApproche", this.innerText); });
+  el("a-opp").addEventListener("blur", function() { mettreAJourChamp("opportunite", this.innerText); });
+  el("a-rech").addEventListener("blur", function() { mettreAJourChamp("notesRecherche", this.innerText); });
+  el("a-terr").addEventListener("blur", function() { mettreAJourChamp("notesTerrain", this.innerText); });
+
+  el("btn-add-note").addEventListener("click", function() {
+    var c = null;
+    for (var i = 0; i < contacts.length; i++) { if (contacts[i].id === curId) { c = contacts[i]; break; } }
+    if (!c) return;
+    var txt = el("note-txt").value.trim();
+    var type = el("note-type").value;
+    if (!txt) return;
+    var labels = {visite:"Visite terrain", appel:"Appel", sms:"SMS envoye", email:"Email envoye", rdv:"RDV", note:"Note interne", gagne:"Contrat signe"};
+    if (!c.historique) c.historique = [];
+    c.historique.push({date: maintenant(), type: type, titre: labels[type] || type, corps: txt});
+    el("note-txt").value = "";
+    afficherHistorique(c);
+    if (URL_SCRIPT && !modeDemo) envoyerGS({action:"ajouterHistorique", ligne:{"Contact ID":c.id,"Nom contact":c.prenom+" "+c.nom,Date:maintenant(),Type:type,Titre:labels[type]||type,Contenu:txt,Auteur:"Mathieu"}});
+    sauvegarderLocal();
+    afficherToast("Note ajoutee", "ok");
+  });
+
+  el("btn-add-prop").addEventListener("click", function() {
+    var c = null;
+    for (var i = 0; i < contacts.length; i++) { if (contacts[i].id === curId) { c = contacts[i]; break; } }
+    if (!c) return;
+    var titre = el("p-titre").value.trim();
+    var montant = el("p-montant").value;
+    if (!titre) { afficherToast("Le titre est requis", "err"); return; }
+    var p = {titre:titre, montant:montant+" euro", statut:el("p-statut").value, detail:el("p-detail").value, lien:el("p-lien").value};
+    if (!c.propositions) c.propositions = [];
+    c.propositions.push(p);
+    c.montantEstime = montant;
+    c.statut = "Proposition envoyee";
+    if (!c.historique) c.historique = [];
+    c.historique.push({date:maintenant(), type:"email", titre:"Proposition envoyee", corps:titre+" - "+montant+" euro"});
+    el("p-titre").value=""; el("p-montant").value=""; el("p-detail").value=""; el("p-lien").value="";
+    el("m-statut").value = "Proposition envoyee";
+    afficherPropositionsModal(c); afficherHistorique(c);
+    el("m-badges").innerHTML = "<span class='st " + classeStatut('Proposition envoyee') + "'>Proposition envoyee</span>";
+    if (URL_SCRIPT && !modeDemo) { envoyerGS({action:"ajouterProposition", ligne:{"Contact ID":c.id,"Nom contact":c.prenom+" "+c.nom,Titre:p.titre,Montant:p.montant,"Date envoi":maintenant(),"Statut proposition":p.statut,"Detail services":p.detail,"Lien document":p.lien}}); envoyerGS({action:"modifierContact",contact:c}); }
+    sauvegarderLocal(); toutAfficher();
+    afficherToast("Proposition ajoutee", "ok");
+  });
+
+  el("btn-add-rel").addEventListener("click", function() {
+    var c = null;
+    for (var i = 0; i < contacts.length; i++) { if (contacts[i].id === curId) { c = contacts[i]; break; } }
+    if (!c) return;
+    var da = el("r-date").value;
+    var ca = el("r-canal").value;
+    var ms = el("r-message").value.trim();
+    if (!da || !ms) { afficherToast("Date et message requis", "err"); return; }
+    if (!c.relances) c.relances = [];
+    c.relances.push({date:da, canal:ca, message:ms});
+    c.prochaineRelance = da; c.actionPrevue = ca + " - " + ms.substring(0,45);
+    el("r-date").value=""; el("r-message").value="";
+    afficherRelancesModal(c); toutAfficher();
+    if (URL_SCRIPT && !modeDemo) { envoyerGS({action:"ajouterRelance", ligne:{"Contact ID":c.id,"Nom contact":c.prenom+" "+c.nom,"Date prevue":da,Canal:ca,Message:ms,Statut:"Planifiee",Priorite:el("r-priorite").value}}); envoyerGS({action:"modifierContact",contact:c}); }
+    sauvegarderLocal();
+    afficherToast("Relance planifiee", "ok");
+  });
+
+  el("btn-save-nouveau").addEventListener("click", function() {
+    var nm = (el("n-nm").value || "").trim();
+    if (!nm) { afficherToast("Le nom est obligatoire", "err"); return; }
+    var c = {
+      id:"C"+Date.now(), prenom:el("n-pn").value, nom:nm,
+      entreprise:el("n-en").value, secteur:el("n-se").value,
+      ville:el("n-vi").value, codePostal:el("n-cp").value,
+      telephone:el("n-te").value, email:el("n-em").value,
+      siteWeb:el("n-si").value, linkedin:el("n-li").value,
+      facebook:el("n-fb").value, instagram:el("n-ig").value,
+      googleBusiness:el("n-gb").value, statut:el("n-st").value,
+      potentiel:el("n-po").value, confiance:"Froid",
+      source:el("n-so").value, canal:el("n-ca").value,
+      prestation:el("n-pr").value, montantEstime:el("n-mo").value,
+      montantSigne:"", numeroDevis:"", dateSignature:"",
+      presenceDigitale:el("n-pres").value, pointsFaibles:el("n-fw").value,
+      angleApproche:el("n-ang").value, opportunite:el("n-op").value,
+      notesRecherche:el("n-nr").value, notesTerrain:"", notesGenerales:"",
+      lienDevis:"", lienContrat:"", lienBrief:"",
+      prochaineRelance:el("n-re").value, actionPrevue:el("n-ac").value,
+      maturiteDigitale:el("n-md").value,
+      historique:[], propositions:[], relances:[]
+    };
+    var note = (el("n-no").value || "").trim();
+    if (note) c.historique.push({date:maintenant(), type:"note", titre:"Note initiale", corps:note});
+    contacts.push(c);
+    if (URL_SCRIPT && !modeDemo) { afficherLoader("Sauvegarde..."); envoyerGS({action:"ajouterContact",contact:c}).then(function(){cacherLoader();}); }
+    el("modal-nouveau").classList.remove("ouvert");
+    var chps = ["n-pn","n-nm","n-en","n-vi","n-cp","n-te","n-em","n-si","n-li","n-fb","n-ig","n-gb","n-mo","n-so","n-re","n-ac","n-pres","n-fw","n-ang","n-op","n-nr","n-no"];
+    for (var i = 0; i < chps.length; i++) { var inp = el(chps[i]); if(inp) inp.value=""; }
+    sauvegarderLocal(); toutAfficher();
+    afficherToast("Contact cree", "ok");
+  });
+
+  el("btn-save-terrain").addEventListener("click", function() {
+    var nm = (el("t-nm").value || "").trim();
+    if (!nm) { afficherToast("Le nom est obligatoire", "err"); return; }
+    var c = {
+      id:"C"+Date.now(), prenom:el("t-pn").value, nom:nm,
+      entreprise:el("t-en").value, secteur:el("t-se").value,
+      ville:el("t-vi").value, codePostal:"", telephone:el("t-te").value,
+      email:"", siteWeb:"", linkedin:"", facebook:"", instagram:"", googleBusiness:"",
+      statut:"Nouveau lead", potentiel:el("t-po").value, confiance:"Froid",
+      source:"Terrain", canal:el("t-ca").value, prestation:el("t-pr").value,
+      montantEstime:"", montantSigne:"", numeroDevis:"", dateSignature:"",
+      presenceDigitale:"", pointsFaibles:el("t-fw").value,
+      angleApproche:"", opportunite:"", notesRecherche:"",
+      notesTerrain:el("t-no").value, notesGenerales:"",
+      lienDevis:"", lienContrat:"", lienBrief:"",
+      prochaineRelance:el("t-re").value, actionPrevue:el("t-ca").value,
+      maturiteDigitale:"0",
+      historique:[{date:maintenant(),type:"visite",titre:"Saisie terrain",corps:el("t-no").value||"Prospect identifie."}],
+      propositions:[], relances:[]
+    };
+    contacts.push(c);
+    if (URL_SCRIPT && !modeDemo) envoyerGS({action:"ajouterContact",contact:c});
+    var tf = ["t-pn","t-nm","t-en","t-vi","t-te","t-fw","t-no"];
+    for (var i = 0; i < tf.length; i++) el(tf[i]).value = "";
+    sauvegarderLocal(); toutAfficher();
+    afficherToast("Prospect ajoute", "ok");
+    changerVue("bord");
+  });
+
+  el("btn-clear-terrain").addEventListener("click", function() {
+    var tf = ["t-pn","t-nm","t-en","t-vi","t-te","t-fw","t-no"];
+    for (var i = 0; i < tf.length; i++) el(tf[i]).value = "";
+  });
+
+  el("btn-save-analyse").addEventListener("click", function() {
+    var nm = (el("a-nm").value || "").trim();
+    if (!nm) { afficherToast("Le nom est obligatoire", "err"); return; }
+    var c = {
+      id:"C"+Date.now(), prenom:"", nom:nm, entreprise:nm,
+      secteur:el("a-se").value, ville:"", codePostal:"", telephone:"",
+      email:"", siteWeb:"", linkedin:"", facebook:"", instagram:"", googleBusiness:"",
+      statut:"Nouveau lead", potentiel:el("a-po").value, confiance:"Froid",
+      source:"Analyse digitale", canal:"", prestation:"",
+      montantEstime:"", montantSigne:"", numeroDevis:"", dateSignature:"",
+      presenceDigitale:el("a-pr").value, pointsFaibles:el("a-fw").value,
+      angleApproche:el("a-an").value, opportunite:el("a-op").value,
+      notesRecherche:el("a-no").value, notesTerrain:"", notesGenerales:"",
+      lienDevis:"", lienContrat:"", lienBrief:"",
+      prochaineRelance:"", actionPrevue:"", maturiteDigitale:el("a-ma").value,
+      historique:[{date:maintenant(),type:"note",titre:"Analyse digitale",corps:el("a-fw").value}],
+      propositions:[], relances:[]
+    };
+    contacts.push(c);
+    if (URL_SCRIPT && !modeDemo) envoyerGS({action:"ajouterContact",contact:c});
+    var af = ["a-nm","a-se","a-pr","a-fw","a-an","a-op","a-no"];
+    for (var i = 0; i < af.length; i++) el(af[i]).value = "";
+    sauvegarderLocal(); toutAfficher();
+    afficherToast("Prospect sauvegarde", "ok");
+  });
+
+  el("btn-clear-analyse").addEventListener("click", function() {
+    var af = ["a-nm","a-se","a-pr","a-fw","a-an","a-op","a-no"];
+    for (var i = 0; i < af.length; i++) el(af[i]).value = "";
+  });
+
+  var urlSauvegardee = "";
+  try { urlSauvegardee = localStorage.getItem(CLE_URL) || ""; } catch(e) {}
+  if (urlSauvegardee) {
+    el("setup-url").value = urlSauvegardee;
+    URL_SCRIPT = urlSauvegardee;
+    el("setup").style.display = "none";
+    synchroniser();
+  }
+});
+</script>
+</body>
+</html>
